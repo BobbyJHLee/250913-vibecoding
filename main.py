@@ -1,110 +1,59 @@
 import streamlit as st
-import time
+import pandas as pd
+import altair as alt
+import os
 
-# 페이지 기본 설정 (가장 처음에 한 번만 호출)
-st.set_page_config(
-    page_title="🎓 MBTI 별 찰떡 공부법!",
-    page_icon="🧠",
-    layout="centered",
+st.title("MBTI 유형별 국가별 비율 Top 10")
+
+file_path = "countriesMBTI_16types.csv"
+
+# 기본 파일 읽기 시도
+if os.path.exists(file_path):
+    df = pd.read_csv(file_path)
+    st.success(f"기본 데이터 파일 `{file_path}` 를 불러왔습니다.")
+else:
+    uploaded_file = st.file_uploader("CSV 파일을 업로드하세요", type=["csv"])
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.success("업로드한 파일을 불러왔습니다.")
+    else:
+        st.warning("CSV 파일을 업로드하거나 기본 데이터 파일을 폴더에 두세요.")
+        st.stop()
+
+# MBTI 컬럼 탐지
+mbti_types = ['ISTJ','ISFJ','INFJ','INTJ','ISTP','ISFP','INFP','INTP',
+              'ESTP','ESFP','ENFP','ENTP','ESTJ','ESFJ','ENFJ','ENTJ']
+mbti_cols = [c for c in df.columns if c in mbti_types]
+
+# 결측치 0으로 채우고 정수화
+df[mbti_cols] = df[mbti_cols].fillna(0).astype(int)
+
+# 총합 및 비율 계산
+df['total'] = df[mbti_cols].sum(axis=1)
+for col in mbti_cols:
+    df[col + "_ratio"] = df[col] / df['total']
+
+# MBTI 선택
+selected_mbti = st.selectbox("MBTI 유형을 선택하세요", mbti_types)
+
+ratio_col = selected_mbti + "_ratio"
+
+# Top 10 국가 추출
+top10 = df[['Country', ratio_col]].sort_values(by=ratio_col, ascending=False).head(10)
+
+st.write(f"### {selected_mbti} 비율 Top 10 국가")
+st.dataframe(top10)
+
+# Altair 그래프
+chart = (
+    alt.Chart(top10)
+    .mark_bar()
+    .encode(
+        x=alt.X(ratio_col, title="비율", axis=alt.Axis(format='%')),
+        y=alt.Y('Country', sort='-x', title="국가"),
+        tooltip=['Country', alt.Tooltip(ratio_col, format=".2%")]
+    )
+    .properties(width=600, height=400)
 )
 
-# 🎈 앱 제목과 설명
-st.title("🎓 MBTI 별 찰떡 공부법!")
-st.write("---")
-st.write("나의 MBTI 유형에게 꼭 맞는 공부 비법을 찾아보세요! 🕵️‍♀️")
-st.write("아래 목록에서 당신의 유형을 선택하면, 잠재력을 터뜨릴 수 있는 비밀 팁을 알려드려요. ✨")
-
-# MBTI 유형별 공부법 데이터 (오류 방지를 위해 단순하고 명확한 구조로 변경)
-mbti_study_methods = {
-    'INTJ (용의주도한 전략가)': {
-        'method': '큰 그림을 그리고 장기적인 계획을 세우는 `Top-down` 방식이 효과적이에요. 목표를 명확히 하고 체계적으로 접근해보세요. 🗺️',
-        'tip': '혼자만의 깊은 탐구 시간을 즐기세요! 불필요한 정보는 과감히 쳐내고 핵심에 집중하는 것이 당신의 슈퍼파워! 💥'
-    },
-    'INTP (논리적인 사색가)': {
-        'method': '"왜?"라는 질문을 던지며 원리를 파고드는 탐구형 학습이 잘 맞아요. 복잡한 이론을 자신만의 논리로 재구성해보세요. 🧐',
-        'tip': '정해진 계획보다는 지적 호기심이 이끄는 대로 자유롭게 탐험하세요. `유레카!`의 순간을 즐길 준비, 되셨나요? 💡'
-    },
-    'ENTJ (대담한 통솔자)': {
-        'method': '타고난 리더십으로 스터디 그룹을 이끌어보세요! 목표를 세우고 효율적으로 시간을 관리하는 데 아주 능숙해요. 🗓️',
-        'tip': '단순 암기보다는 토론하고 남을 가르치면서 지식을 완벽히 내 것으로 만들어 보세요. 당신의 지휘 아래 모두가 성장할 거예요! 🚀'
-    },
-    'ENTP (뜨거운 논쟁을 즐기는 변론가)': {
-        'method': '두뇌 풀가동! 🧠 여러 관점에서 문제를 보고, 열띤 토론으로 아이디어를 발전시키는 방식이 최고예요. 당신은 브레인스토밍의 제왕!',
-        'tip': '한 가지에 얽매이지 말고 여러 분야를 넘나들며 지식을 연결해보세요. 뻔한 건 재미없잖아요? 새롭고 신선한 자극을 계속 주세요! ✨'
-    },
-    'INFJ (선의의 옹호자)': {
-        'method': '공부하는 내용이 자신과 타인에게 어떤 의미가 있는지 생각할 때 동기부여가 샘솟아요. 당신의 통찰력으로 핵심을 꿰뚫어 보세요. 🔮',
-        'tip': '조용하고 편안한 환경에서 공부할 때 효율이 극대화돼요. 공부한 내용을 사람들을 돕는 데 어떻게 쓸 수 있을지 상상해보세요. 💖'
-    },
-    'INFP (열정적인 중재자)': {
-        'method': '가치관과 신념에 맞는 주제를 공부할 때 가장 큰 힘을 발휘해요. 딱딱한 이론보다는 이야기나 비유를 통해 이해하는 걸 좋아하죠. 📚',
-        'tip': '마인드맵이나 그림을 그리며 창의적으로 내용을 정리해보세요. 당신의 따뜻한 상상력이 최고의 무기랍니다! 🎨'
-    },
-    'ENFJ (정의로운 사회운동가)': {
-        'method': '다른 사람과 함께 공부하며 긍정적인 에너지를 나눌 때 시너지가 폭발해요! 스터디 그룹의 분위기 메이커 역할을 해보세요. 😊',
-        'tip': '사람들에게 배운 것을 설명해주거나, 서로 격려하며 공부할 때 가장 즐거울 거예요. 당신의 선한 영향력으로 모두를 이끌어주세요! 🌟'
-    },
-    'ENFP (재기발랄한 활동가)': {
-        'method': '새롭고 흥미로운 아이디어를 탐험하는 것을 즐겨요. 다양한 학습 자료를 활용하고, 때로는 즉흥적으로 공부 계획을 바꿔보는 것도 좋아요. 🎉',
-        'tip': '지루한 반복 학습은 금물! 게임처럼 즐겁게, 대화하듯이 편안하게 공부할 수 있는 환경을 만드세요. 당신의 열정이 길을 안내할 거예요. 🧭'
-    },
-    'ISTJ (청렴결백한 논리주의자)': {
-        'method': '현실적이고 체계적인 당신에겐, 순서대로 꼼꼼하게 공부하는 방식이 안성맞춤! 세부 사항까지 놓치지 않는 정확함이 장점이에요. 📋',
-        'tip': '이미 검증된, 신뢰할 수 있는 자료로 공부하는 것을 선호해요. `"백문이 불여일견"`이 아니라 `"백견이 불여일행"`! 꾸준함이 당신을 정상으로 이끌 거예요. 🏆'
-    },
-    'ISFJ (용감한 수호자)': {
-        'method': '따뜻한 마음을 가진 당신은 다른 사람을 돕는다는 생각이 들 때 공부가 더 잘 돼요. 구체적인 사례를 통해 차근차근 배우는 것을 선호해요. 🤝',
-        'tip': '조용하고 정리된 공간에서 안정감을 느껴요. 누군가를 위해 공부 노트를 정리해주거나, 약속을 정해 함께 공부하면 책임감 UP! 💪'
-    },
-    'ESTJ (엄격한 관리자)': {
-        'method': '명확한 규칙과 시스템 안에서 효율적으로 공부하는 것을 선호해요. 관리 능력을 발휘해 학습 계획을 짜고 그대로 실행하는 데 탁월해요. 🏛️',
-        'tip': '실생활에 어떻게 적용될 수 있을지 생각하며 공부하면 이해가 빨라요. 추상적인 이론보다는 실용적인 지식을 쌓는 데 집중하세요! 🔧'
-    },
-    'ESFJ (사교적인 외교관)': {
-        'method': '사람들과 교류하며 에너지를 얻는 당신! 친구들과 함께 서로 질문하고 답하며 공부할 때 가장 효과적이에요. 👨‍👩‍👧‍👦',
-        'tip': '인정받고 칭찬받을 때 더 큰 힘을 내요. 스터디 계획을 주변에 알리고, 달성했을 때 스스로에게 작은 보상을 선물하세요! 🎁'
-    },
-    'ISTP (만능 재주꾼)': {
-        'method': '이론보다는 직접 부딪치며 배우는 실습형 학습의 대가! 도구를 사용하거나 실제 문제를 해결하며 지식을 습득할 때 빛을 발해요. 🛠️',
-        'tip': '필요할 때, 원하는 만큼만! 벼락치기에 강한 모습을 보이기도 해요. 정적인 학습보다는 몸으로 체득하는 경험을 늘려보세요. 🤸'
-    },
-    'ISFP (호기심 많은 예술가)': {
-        'method': '오감을 활용한 체험 학습을 좋아해요. 아름다운 이미지, 감성적인 음악과 함께 공부하면 능률이 쑥쑥! 🎶',
-        'tip': '편안하고 자유로운 분위기에서 창의력이 발휘돼요. 딱딱한 책상보다는 좋아하는 카페에서 공부해보는 건 어때요? ☕'
-    },
-    'ESTP (모험을 즐기는 사업가)': {
-        'method': '순간적인 집중력과 임기응변이 뛰어나요. 친구와 내기를 하거나, 퀴즈를 푸는 등 경쟁과 재미 요소가 있을 때 학습 효과가 극대화돼요. 🎲',
-        'tip': '지루한 이론 공부는 NO! 실제 상황에 뛰어들어 직접 경험하며 배우는 것을 가장 선호해요. 지금 바로 액션을 취하세요! 🏃‍♂️'
-    },
-    'ESFP (자유로운 영혼의 연예인)': {
-        'method': '주목받는 것을 즐기는 당신! 공부한 내용을 바탕으로 발표나 연극을 해보는 등, 사람들과 함께하며 재미있게 배울 때 기억에 쏙쏙 남아요. 🎤',
-        'tip': '즐거움이 최고의 동기부여! 스터디 그룹의 분위기 메이커가 되어보세요. 긍정적인 에너지를 뿜어내며 모두와 함께 성장할 수 있어요. 🥳'
-    }
-}
-
-# 드롭다운 메뉴로 MBTI 유형 선택
-mbti_list = ["-- 유형을 선택해주세요 --"] + list(mbti_study_methods.keys())
-selected_mbti = st.selectbox(
-    '👇 당신의 MBTI 유형은?',
-    mbti_list
-)
-
-# 유형을 선택했을 때 결과 표시
-if selected_mbti != "-- 유형을 선택해주세요 --":
-    result = mbti_study_methods[selected_mbti]
-
-    # 로딩 애니메이션 효과
-    with st.spinner('당신만을 위한 맞춤 공부법을 분석 중입니다... 🧐'):
-        time.sleep(2) # 2초 동안 기다리며 분석하는 척!
-
-    st.write("---")
-    st.header(f"✨ 당신은 `{selected_mbti}`군요!")
-    
-    st.subheader("💡 추천 공부 스타일")
-    st.info(result['method'])
-
-    st.subheader("꿀팁! 🍯")
-    st.success(result['tip'])
-
-    # 재미있는 효과 추가!
-    st.balloons()
+st.altair_chart(chart, use_container_width=True)
